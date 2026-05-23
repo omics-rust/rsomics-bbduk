@@ -19,7 +19,7 @@ fn bbduk_present() -> Option<String> {
         String::from_utf8_lossy(&out.stderr),
         String::from_utf8_lossy(&out.stdout)
     );
-    v.contains("BBMap").then_some(v)
+    (v.contains("BBMap") || v.contains("BBTools")).then_some(v)
 }
 
 // all reads 60 bp ≥ minlength so the length filter is inert — the test isolates the k-mer decision
