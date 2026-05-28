@@ -236,8 +236,10 @@ impl RefKmers {
             }
         }
         let full = KmerSet::from_vec(full_vec);
-        let tips: HashMap<usize, KmerSet> =
-            tip_vecs.into_iter().map(|(l, v)| (l, KmerSet::from_vec(v))).collect();
+        let tips: HashMap<usize, KmerSet> = tip_vecs
+            .into_iter()
+            .map(|(l, v)| (l, KmerSet::from_vec(v)))
+            .collect();
         Self {
             full,
             tips,
