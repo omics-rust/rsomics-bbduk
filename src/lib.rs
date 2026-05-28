@@ -22,7 +22,50 @@ impl Hasher for IdentityHasher {
     }
 }
 
-type KmerSet = std::collections::HashSet<u64, BuildHasherDefault<IdentityHasher>>;
+type KmerHashSet = std::collections::HashSet<u64, BuildHasherDefault<IdentityHasher>>;
+
+// Sorted-array probe: ≤ SMALL_THRESHOLD unique k-mers fit in a few cache lines;
+// binary search beats HashSet bucket chasing at this scale.
+const SMALL_THRESHOLD: usize = 64;
+
+// Adaptive k-mer set: sorted array for small refs, HashSet for large ones.
+// Both hold deduplicated, fully-expanded (hdist variants + RC) k-mer codes.
+enum KmerSet {
+    Small(Box<[u64]>),
+    Large(KmerHashSet),
+}
+
+impl KmerSet {
+    fn from_vec(mut v: Vec<u64>) -> Self {
+        v.sort_unstable();
+        v.dedup();
+        if v.len() <= SMALL_THRESHOLD {
+            Self::Small(v.into_boxed_slice())
+        } else {
+            let mut s = KmerHashSet::default();
+            s.extend(v);
+            Self::Large(s)
+        }
+    }
+
+    fn contains(&self, k: &u64) -> bool {
+        match self {
+            Self::Small(a) => a.binary_search(k).is_ok(),
+            Self::Large(s) => s.contains(k),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Small(a) => a.len(),
+            Self::Large(s) => s.len(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
 
 // k ≤ 31: reverse_complement does 1u64 << (2*k), UB at k=32; BBDuk's own default is 27
 pub const MAX_K: usize = 31;
@@ -161,8 +204,8 @@ impl RefKmers {
         let mm = cfg.maskmiddle && cfg.mink == 0;
         let key = |c: u64| if mm { mask_mid(c, cfg.k) } else { c };
 
-        let mut full = KmerSet::default();
-        let mut tips: HashMap<usize, KmerSet> = HashMap::new();
+        let mut full_vec: Vec<u64> = Vec::new();
+        let mut tip_vecs: HashMap<usize, Vec<u64>> = HashMap::new();
         let tip_lens: Vec<usize> = if cfg.mink > 0 {
             (cfg.mink..cfg.k).collect()
         } else {
@@ -171,9 +214,9 @@ impl RefKmers {
         for seq in refs {
             for w in seq.windows(cfg.k) {
                 for code in variants(w, cfg.hdist) {
-                    full.insert(key(code));
+                    full_vec.push(key(code));
                     if cfg.rcomp {
-                        full.insert(key(reverse_complement(code, cfg.k)));
+                        full_vec.push(key(reverse_complement(code, cfg.k)));
                     }
                 }
             }
@@ -181,17 +224,20 @@ impl RefKmers {
                 if seq.len() < l {
                     continue;
                 }
-                let set = tips.entry(l).or_default();
+                let v = tip_vecs.entry(l).or_default();
                 for w in seq.windows(l) {
                     for code in variants(w, cfg.hdist2) {
-                        set.insert(code);
+                        v.push(code);
                         if cfg.rcomp {
-                            set.insert(reverse_complement(code, l));
+                            v.push(reverse_complement(code, l));
                         }
                     }
                 }
             }
         }
+        let full = KmerSet::from_vec(full_vec);
+        let tips: HashMap<usize, KmerSet> =
+            tip_vecs.into_iter().map(|(l, v)| (l, KmerSet::from_vec(v))).collect();
         Self {
             full,
             tips,
