@@ -7,7 +7,10 @@ fn bench_bbduk(c: &mut Criterion) {
     let bin = env!("CARGO_BIN_EXE_rsomics-bbduk");
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // bbduk golden may be in a different location; use the nearest fastq from preprocessing
-    let fq = manifest.parent().unwrap().join("rsomics-fastp/tests/golden/test_r1.fastq");
+    let fq = manifest
+        .parent()
+        .unwrap()
+        .join("rsomics-fastp/tests/golden/test_r1.fastq");
     c.bench_function("rsomics-bbduk golden", |b| {
         b.iter(|| {
             let out = Command::new(black_box(bin))
